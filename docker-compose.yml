@@ -1,0 +1,83 @@
+# ============================================================================
+# The Shelf — Docker Compose
+# Services: MongoDB 7, Node.js App, HTTPS via self-signed certificate
+# ============================================================================
+
+version: "3.9"
+
+services:
+  # --------------------------------------------------------------------------
+  # MongoDB — local instance replacing Atlas for containerised deployment
+  # --------------------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    container_name: shelf-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: the-shelf
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # The Shelf — Node.js application
+  # --------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shelf-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "3443:3443"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/the-shelf
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-strong-random-secret}
+      SESSION_DURATION: ${SESSION_DURATION:-24h}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - epub-storage:/app/storage/epub
+      - cover-storage:/app/storage/covers
+      - ./certs:/app/certs:ro
+
+  # --------------------------------------------------------------------------
+  # HTTPS certificate generator — runs once to create self-signed cert
+  # Used for demo/viva requirement: "Demo to be on HTTPS"
+  # --------------------------------------------------------------------------
+  certgen:
+    image: alpine/openssl
+    container_name: shelf-certgen
+    volumes:
+      - ./certs:/certs
+    entrypoint: >
+      sh -c '
+        if [ ! -f /certs/server.key ]; then
+          openssl req -x509 -nodes -days 365
+            -newkey rsa:2048
+            -keyout /certs/server.key
+            -out /certs/server.cert
+            -subj "/C=PK/ST=Sindh/L=Karachi/O=TheShelf/CN=localhost";
+          echo "Self-signed certificate generated.";
+        else
+          echo "Certificate already exists, skipping.";
+        fi
+      '
+
+volumes:
+  mongo-data:
+    driver: local
+  epub-storage:
+    driver: local
+  cover-storage:
+    driver: local
