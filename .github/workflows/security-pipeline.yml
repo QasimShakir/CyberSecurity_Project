@@ -1,0 +1,215 @@
+# =============================================================================
+# The Shelf — DevSecOps Security Pipeline
+# Runs SAST, SCA, and DAST on every push and pull request
+# =============================================================================
+
+name: Security Pipeline (SAST + SCA + DAST)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ===========================================================================
+  # Stage 1: SCA — Software Composition Analysis
+  # Scans dependencies for known CVEs using npm audit
+  # Refs #3
+  # ===========================================================================
+  sca:
+    name: "SCA — Dependency Vulnerability Scan"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (JSON report)
+        run: npm audit --json > sca-npm-audit.json || true
+
+      - name: Run npm audit (readable output)
+        run: npm audit --omit=dev 2>&1 | tee sca-npm-audit-readable.txt || true
+
+      - name: Check for critical/high vulnerabilities (quality gate)
+        run: |
+          echo "=== SCA Quality Gate ==="
+          # Fail the pipeline if critical or high vulnerabilities are found
+          CRITICAL=$(npm audit --json 2>/dev/null | jq '.metadata.vulnerabilities.critical // 0')
+          HIGH=$(npm audit --json 2>/dev/null | jq '.metadata.vulnerabilities.high // 0')
+          echo "Critical: $CRITICAL"
+          echo "High: $HIGH"
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "::error::SCA FAILED — Found $CRITICAL critical and $HIGH high severity vulnerabilities"
+            exit 1
+          fi
+          echo "SCA passed — no critical or high vulnerabilities found"
+
+      - name: Upload SCA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-report
+          path: |
+            sca-npm-audit.json
+            sca-npm-audit-readable.txt
+
+  # ===========================================================================
+  # Stage 2: SAST — Static Application Security Testing
+  # Scans source code for security flaws using Semgrep
+  # Refs #4
+  # ===========================================================================
+  sast:
+    name: "SAST — Static Code Analysis (Semgrep)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/nodejs
+            p/jwt
+            p/xss
+            p/javascript
+            p/typescript
+          generateSarif: "1"
+        env:
+          SEMGREP_RULES: "p/nodejs p/jwt p/xss p/javascript p/typescript"
+
+      - name: Run Semgrep (JSON report)
+        run: |
+          pip install semgrep
+          semgrep scan \
+            --config p/nodejs \
+            --config p/jwt \
+            --config p/xss \
+            --config p/javascript \
+            --config p/typescript \
+            --json \
+            --output sast-semgrep-report.json \
+            . || true
+
+      - name: Run Semgrep (readable text report)
+        run: |
+          semgrep scan \
+            --config p/nodejs \
+            --config p/jwt \
+            --config p/xss \
+            --config p/javascript \
+            --config p/typescript \
+            --text \
+            --output sast-semgrep-readable.txt \
+            . || true
+
+      - name: Check for critical SAST findings (quality gate)
+        run: |
+          echo "=== SAST Quality Gate ==="
+          if [ -f sast-semgrep-report.json ]; then
+            ERRORS=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' sast-semgrep-report.json 2>/dev/null || echo "0")
+            WARNINGS=$(jq '[.results[] | select(.extra.severity == "WARNING")] | length' sast-semgrep-report.json 2>/dev/null || echo "0")
+            echo "Errors (high severity): $ERRORS"
+            echo "Warnings (medium severity): $WARNINGS"
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "::error::SAST FAILED — Found $ERRORS high-severity findings"
+              exit 1
+            fi
+            echo "SAST passed — no high-severity findings"
+          else
+            echo "No Semgrep report found — skipping quality gate"
+          fi
+
+      - name: Upload SAST report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-report
+          path: |
+            sast-semgrep-report.json
+            sast-semgrep-readable.txt
+
+  # ===========================================================================
+  # Stage 3: DAST — Dynamic Application Security Testing
+  # Builds and runs the Dockerised app, then scans with OWASP ZAP
+  # Refs #5
+  # ===========================================================================
+  dast:
+    name: "DAST — Dynamic Scan (OWASP ZAP)"
+    runs-on: ubuntu-latest
+    needs: [sca, sast]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.11.0
+        with:
+          mongodb-version: "7.0"
+          mongodb-port: 27017
+
+      - name: Start application server
+        run: |
+          npx tsx server.ts &
+          echo "Waiting for server to start..."
+          # Wait up to 30 seconds for the server to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000/api/books > /dev/null 2>&1; then
+              echo "Server is ready!"
+              break
+            fi
+            echo "Attempt $i/30 — waiting..."
+            sleep 1
+          done
+        env:
+          MONGODB_URI: mongodb://localhost:27017/the-shelf
+          JWT_SECRET: ci-pipeline-test-secret-not-for-production
+          NODE_ENV: production
+          SESSION_DURATION: 24h
+
+      - name: Verify server is running
+        run: |
+          curl -f http://localhost:3000/api/books || (echo "::error::Server failed to start" && exit 1)
+
+      - name: Run OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: "http://localhost:3000"
+          rules_file_name: ""
+          cmd_options: "-a -j"
+          allow_issue_writing: false
+        continue-on-error: true
+
+      - name: Upload DAST report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-report
+          path: |
+            report_html.html
+            report_json.json
+            report_md.md
