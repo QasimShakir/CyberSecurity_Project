@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import { pipeline } from "stream/promises";
+import https from "https";
 import multer from "multer";
 import { EPub } from "epub";
 import nodemailer from "nodemailer";
@@ -33,12 +34,12 @@ const transporter = nodemailer.createTransport({
 });
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 // ── Storage directories ────────────────────────────────────────────────────────
 const STORAGE_DIR = path.join(__dirname, "storage");
-const EPUB_DIR    = path.join(STORAGE_DIR, "epub");
-const COVERS_DIR  = path.join(STORAGE_DIR, "covers");
+const EPUB_DIR = path.join(STORAGE_DIR, "epub");
+const COVERS_DIR = path.join(STORAGE_DIR, "covers");
 
 [EPUB_DIR, COVERS_DIR].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -47,7 +48,7 @@ const COVERS_DIR  = path.join(STORAGE_DIR, "covers");
 // ── Multer ─────────────────────────────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, EPUB_DIR),
-  filename:    (req, file, cb) => {
+  filename: (req, file, cb) => {
     const sanitized = file.originalname.replace(/[^\w\s.-]/g, "").slice(0, 50);
     cb(null, `${Date.now()}-${sanitized}`);
   },
@@ -56,9 +57,9 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    const epubOk  = file.fieldname === "epub_file"    && (file.mimetype === "application/epub+zip" || file.originalname.endsWith(".epub"));
-    const coverOk = file.fieldname === "cover_image"  && file.mimetype.startsWith("image/");
-    const coverEditOk = file.fieldname === "cover"    && file.mimetype.startsWith("image/");
+    const epubOk = file.fieldname === "epub_file" && (file.mimetype === "application/epub+zip" || file.originalname.endsWith(".epub"));
+    const coverOk = file.fieldname === "cover_image" && file.mimetype.startsWith("image/");
+    const coverEditOk = file.fieldname === "cover" && file.mimetype.startsWith("image/");
     if (epubOk || coverOk || coverEditOk) cb(null, true);
     else cb(new Error("Invalid file type or field name"));
   },
@@ -66,8 +67,8 @@ const upload = multer({
 });
 
 // ── Config ─────────────────────────────────────────────────────────────────────
-const MONGODB_URI     = process.env.MONGODB_URI || "mongodb://localhost:27017/the-shelf";
-const JWT_SECRET      = process.env.JWT_SECRET  || "your-secret-key";
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/the-shelf";
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const SESSION_DURATION = process.env.SESSION_DURATION || "24h";
 
 // =============================================================================
@@ -75,56 +76,56 @@ const SESSION_DURATION = process.env.SESSION_DURATION || "24h";
 // =============================================================================
 
 const userSchema = new mongoose.Schema({
-  username:            { type: String,  required: true },
-  email:               { type: String,  required: true, unique: true },
-  password:            { type: String,  required: true },
-  role:                { type: String,  enum: ["reader", "admin"], default: "reader" },
-  createdAt:           { type: Date,    default: Date.now },
-  failedLoginAttempts: { type: Number,  default: 0 },
-  lockUntil:           { type: Date,    default: null },
-  resetToken:          { type: String,  default: null },
-  resetTokenExpiry:    { type: Date,    default: null },
+  username: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ["reader", "admin"], default: "reader" },
+  createdAt: { type: Date, default: Date.now },
+  failedLoginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date, default: null },
+  resetToken: { type: String, default: null },
+  resetTokenExpiry: { type: Date, default: null },
 });
 
 // FIX: Added `status` (for archive feature) and `publicationYear`
 const bookSchema = new mongoose.Schema({
-  title:           { type: String, required: true },
-  author:          { type: String, required: true },
-  category:        { type: String, required: true },
-  epubUrl:         { type: String, required: true },
-  coverUrl:        { type: String, default: "" },
-  description:     { type: String, default: "" },
-  language:        { type: String, default: "en" },
+  title: { type: String, required: true },
+  author: { type: String, required: true },
+  category: { type: String, required: true },
+  epubUrl: { type: String, required: true },
+  coverUrl: { type: String, default: "" },
+  description: { type: String, default: "" },
+  language: { type: String, default: "en" },
   publicationYear: { type: String, default: "" },
   // FIX: `status` field — drives archive feature. Default Active so all
   // existing books remain visible; Archived hides from user-facing routes.
-  status:          { type: String, enum: ["Active", "Archived"], default: "Active" },
-  gutenbergId:     { type: Number, unique: true, sparse: true },
-  ingestedAt:      { type: Date,   default: Date.now },
+  status: { type: String, enum: ["Active", "Archived"], default: "Active" },
+  gutenbergId: { type: Number, unique: true, sparse: true },
+  ingestedAt: { type: Date, default: Date.now },
 });
 
 // FIX: Added `adminId` and `type` to activity log model
 const adminActivitySchema = new mongoose.Schema({
-  type:      { type: String, enum: ["added", "updated", "deleted", "archived", "restored", "scrape"], required: true },
-  message:   { type: String, required: true },
-  adminId:   { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  type: { type: String, enum: ["added", "updated", "deleted", "archived", "restored", "scrape"], required: true },
+  message: { type: String, required: true },
+  adminId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   adminName: { type: String, default: "Admin" },
-  createdAt: { type: Date,   default: Date.now },
+  createdAt: { type: Date, default: Date.now },
 });
 
 const progressSchema = new mongoose.Schema({
-  userId:       { type: mongoose.Schema.Types.ObjectId, ref: "User",  required: true },
-  bookId:       { type: mongoose.Schema.Types.ObjectId, ref: "Book",  required: true },
-  last_location:{ type: String,  required: true },
-  percentage:   { type: Number,  default: 0 },
-  chapter:      { type: String },
-  last_read_at: { type: Date,    default: Date.now },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  bookId: { type: mongoose.Schema.Types.ObjectId, ref: "Book", required: true },
+  last_location: { type: String, required: true },
+  percentage: { type: Number, default: 0 },
+  chapter: { type: String },
+  last_read_at: { type: Date, default: Date.now },
 });
 // Unique constraint so upsert works cleanly
 progressSchema.index({ userId: 1, bookId: 1 }, { unique: true });
 
-const User          = mongoose.model("User",          userSchema);
-const Book          = mongoose.model("Book",          bookSchema);
+const User = mongoose.model("User", userSchema);
+const Book = mongoose.model("Book", bookSchema);
 const AdminActivity = mongoose.model("AdminActivity", adminActivitySchema);
 const ReadingProgress = mongoose.model("ReadingProgress", progressSchema);
 
@@ -138,7 +139,7 @@ async function logActivity(
     await AdminActivity.create({
       type,
       message,
-      adminId:   adminUser?.id,
+      adminId: adminUser?.id,
       adminName: adminUser?.username ?? adminUser?.email ?? "Admin",
     });
   } catch (err) {
@@ -171,7 +172,7 @@ const isAdmin = (req: any, res: any, next: any) => {
 // =============================================================================
 
 async function startServer() {
-  const app  = express();
+  const app = express();
   const PORT = 3000;
 
   app.use((req, res, next) => {
@@ -187,7 +188,7 @@ async function startServer() {
   try {
     await mongoose.connect(MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS:          45000,
+      socketTimeoutMS: 45000,
     });
     console.log("Connected to MongoDB");
 
@@ -224,9 +225,9 @@ async function startServer() {
       if (password.length < 8)
         return res.status(400).json({ error: "Password must be at least 8 characters" });
       const hashed = await bcrypt.hash(password, 10);
-      const user   = new User({ username, email, password: hashed });
+      const user = new User({ username, email, password: hashed });
       await user.save();
-      const token  = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: SESSION_DURATION as any });
+      const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: SESSION_DURATION as any });
       res.json({ token, user: { id: user._id, username: user.username, email: user.email, role: user.role } });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -250,7 +251,7 @@ async function startServer() {
       if (!match) {
         user.failedLoginAttempts += 1;
         if (user.failedLoginAttempts >= 5) {
-          user.lockUntil           = new Date(Date.now() + 15 * 60 * 1000);
+          user.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
           user.failedLoginAttempts = 0;
           await user.save();
           return res.status(423).json({ error: "Too many failed attempts. Account locked for 15 minutes." });
@@ -260,7 +261,7 @@ async function startServer() {
       }
 
       user.failedLoginAttempts = 0;
-      user.lockUntil           = null;
+      user.lockUntil = null;
       await user.save();
       const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: SESSION_DURATION as any });
       res.json({ token, user: { id: user._id, username: user.username, email: user.email, role: user.role } });
@@ -282,18 +283,18 @@ async function startServer() {
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
       const { email } = req.body;
-      const user      = await User.findOne({ email });
+      const user = await User.findOne({ email });
       if (!user) return res.json({ message: "If that email is registered, you'll receive a reset link shortly." });
-      const token          = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-      user.resetToken      = token;
+      const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      user.resetToken = token;
       user.resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000);
       await user.save();
       const resetLink = `http://localhost:3000/forgot-password?token=${token}`;
       await transporter.sendMail({
-        from:    `"The Shelf" <${process.env.EMAIL_USER}>`,
-        to:      email,
+        from: `"The Shelf" <${process.env.EMAIL_USER}>`,
+        to: email,
         subject: "Password Reset Request",
-        html:    `<div style="font-family:Georgia,serif;max-width:480px;margin:auto;padding:40px;background:#FAF6EE;border:1px solid #D9CFC4;border-radius:12px"><h2 style="color:#2C1810">The Shelf</h2><p style="color:#7A6652;font-style:italic">Password Reset</p><p>Click below to reset your password. Expires in <strong>30 minutes</strong>.</p><a href="${resetLink}" style="display:inline-block;margin:24px 0;padding:14px 28px;background:#4A7C59;color:white;text-decoration:none;border-radius:8px;font-weight:bold">Reset Password</a><p style="color:#7A6652;font-size:13px">If you didn't request this, ignore this email.</p></div>`,
+        html: `<div style="font-family:Georgia,serif;max-width:480px;margin:auto;padding:40px;background:#FAF6EE;border:1px solid #D9CFC4;border-radius:12px"><h2 style="color:#2C1810">The Shelf</h2><p style="color:#7A6652;font-style:italic">Password Reset</p><p>Click below to reset your password. Expires in <strong>30 minutes</strong>.</p><a href="${resetLink}" style="display:inline-block;margin:24px 0;padding:14px 28px;background:#4A7C59;color:white;text-decoration:none;border-radius:8px;font-weight:bold">Reset Password</a><p style="color:#7A6652;font-size:13px">If you didn't request this, ignore this email.</p></div>`,
       });
       res.json({ message: "If that email is registered, you'll receive a reset link shortly." });
     } catch (err: any) {
@@ -306,11 +307,11 @@ async function startServer() {
       const { token, newPassword } = req.body;
       const user = await User.findOne({ resetToken: token, resetTokenExpiry: { $gt: new Date() } });
       if (!user) return res.status(400).json({ error: "Invalid or expired reset token." });
-      user.password            = await bcrypt.hash(newPassword, 10);
-      user.resetToken          = null;
-      user.resetTokenExpiry    = null;
+      user.password = await bcrypt.hash(newPassword, 10);
+      user.resetToken = null;
+      user.resetTokenExpiry = null;
       user.failedLoginAttempts = 0;
-      user.lockUntil           = null;
+      user.lockUntil = null;
       await user.save();
       res.json({ message: "Password reset successfully. You can now log in." });
     } catch (err: any) {
@@ -325,12 +326,12 @@ async function startServer() {
 
   app.get("/api/books", async (req, res) => {
     try {
-      const page     = Math.max(1, parseInt(req.query.page  as string) || 1);
-      const limit    = Math.min(20, parseInt(req.query.limit as string) || 20);
-      const skip     = (page - 1) * limit;
-      const search   = ((req.query.search   as string) || "").trim().slice(0, 100);
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(20, parseInt(req.query.limit as string) || 20);
+      const skip = (page - 1) * limit;
+      const search = ((req.query.search as string) || "").trim().slice(0, 100);
       const category = ((req.query.category as string) || "").trim();
-      const sort     = (req.query.sort      as string) || "newest";
+      const sort = (req.query.sort as string) || "newest";
 
       // Always restrict to Active books for the user-facing route
       const filter: any = { status: "Active" };
@@ -338,7 +339,7 @@ async function startServer() {
       // Server-side full-library text search (title + author)
       if (search) {
         filter.$or = [
-          { title:  { $regex: search, $options: "i" } },
+          { title: { $regex: search, $options: "i" } },
           { author: { $regex: search, $options: "i" } },
         ];
       }
@@ -351,12 +352,12 @@ async function startServer() {
 
       // Sort mapping from frontend sort strings to Mongo sort objects
       const sortMap: Record<string, any> = {
-        newest:      { ingestedAt: -1 },
-        oldest:      { ingestedAt:  1 },
-        author_asc:  { author:      1 },
-        author_desc: { author:     -1 },
-        title_asc:   { title:       1 },
-        title_desc:  { title:      -1 },
+        newest: { ingestedAt: -1 },
+        oldest: { ingestedAt: 1 },
+        author_asc: { author: 1 },
+        author_desc: { author: -1 },
+        title_asc: { title: 1 },
+        title_desc: { title: -1 },
       };
       const mongoSort = sortMap[sort] ?? { ingestedAt: -1 };
 
@@ -367,16 +368,16 @@ async function startServer() {
 
       res.json({
         books: books.map((b) => ({
-          id:              b._id,
-          title:           b.title,
-          author:          b.author,
-          category:        b.category,
-          epubUrl:         b.epubUrl,
-          coverUrl:        b.coverUrl,
-          description:     b.description,
-          language:        b.language,
+          id: b._id,
+          title: b.title,
+          author: b.author,
+          category: b.category,
+          epubUrl: b.epubUrl,
+          coverUrl: b.coverUrl,
+          description: b.description,
+          language: b.language,
           publicationYear: (b as any).publicationYear,
-          ingestedAt:      b.ingestedAt,
+          ingestedAt: b.ingestedAt,
         })),
         total,
         page,
@@ -392,16 +393,16 @@ async function startServer() {
       const book = await Book.findById(req.params.id);
       if (!book) return res.status(404).json({ error: "Book not found" });
       res.json({
-        id:              book._id,
-        title:           book.title,
-        author:          book.author,
-        category:        book.category,
-        epubUrl:         book.epubUrl,
-        coverUrl:        book.coverUrl,
-        description:     book.description,
-        language:        book.language,
+        id: book._id,
+        title: book.title,
+        author: book.author,
+        category: book.category,
+        epubUrl: book.epubUrl,
+        coverUrl: book.coverUrl,
+        description: book.description,
+        language: book.language,
         publicationYear: book.publicationYear,
-        status:          book.status,
+        status: book.status,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -412,7 +413,7 @@ async function startServer() {
   app.get("/api/books/epub-upload/:filename", (req, res) => {
     const filePath = path.join(EPUB_DIR, req.params.filename);
     if (!filePath.startsWith(EPUB_DIR)) return res.status(403).json({ error: "Access denied" });
-    if (!fs.existsSync(filePath))       return res.status(404).json({ error: "File not found" });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
     res.setHeader("Content-Type", "application/epub+zip");
     res.setHeader("Accept-Ranges", "bytes");
     res.sendFile(filePath);
@@ -422,7 +423,7 @@ async function startServer() {
   app.get("/api/books/cover-upload/:filename", (req, res) => {
     const filePath = path.join(COVERS_DIR, req.params.filename);
     if (!filePath.startsWith(COVERS_DIR)) return res.status(403).json({ error: "Access denied" });
-    if (!fs.existsSync(filePath))         return res.status(404).json({ error: "File not found" });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
     res.setHeader("Content-Type", "image/jpeg");
     res.sendFile(filePath);
   });
@@ -518,14 +519,14 @@ async function startServer() {
       res.json(history
         .filter((h) => h.bookId) // guard against orphaned progress records
         .map((h) => ({
-          id:         h._id,
-          bookId:     (h.bookId as any)._id,
+          id: h._id,
+          bookId: (h.bookId as any)._id,
           percentage: h.percentage,
           lastReadAt: h.last_read_at,
           book: {
-            id:       (h.bookId as any)._id,
-            title:    (h.bookId as any).title,
-            author:   (h.bookId as any).author,
+            id: (h.bookId as any)._id,
+            title: (h.bookId as any).title,
+            author: (h.bookId as any).author,
             coverUrl: (h.bookId as any).coverUrl,
           },
         }))
@@ -581,12 +582,12 @@ async function startServer() {
   // ── FIX: GET /api/admin/activity ──────────────────────────────────────────
   app.get("/api/admin/activity", verifyToken, isAdmin, async (req, res) => {
     try {
-      const limit    = Math.min(100, parseInt(req.query.limit as string) || 50);
+      const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
       const activity = await AdminActivity.find().sort({ createdAt: -1 }).limit(limit).lean();
       res.json(activity.map((a) => ({
-        id:        a._id,
-        type:      a.type,
-        message:   a.message,
+        id: a._id,
+        type: a.type,
+        message: a.message,
         adminName: a.adminName,
         createdAt: a.createdAt,
       })));
@@ -599,7 +600,7 @@ async function startServer() {
   app.get("/api/admin/activity/export", verifyToken, isAdmin, async (req, res) => {
     try {
       const activity = await AdminActivity.find().sort({ createdAt: -1 }).lean();
-      const rows     = [
+      const rows = [
         ["Type", "Message", "Admin", "When"],
         ...activity.map((a) => [
           a.type,
@@ -622,9 +623,9 @@ async function startServer() {
   // only returns Active books.
   app.get("/api/admin/books", verifyToken, isAdmin, async (req, res) => {
     try {
-      const page   = Math.max(1, parseInt(req.query.page  as string) || 1);
-      const limit  = Math.min(100, parseInt(req.query.limit as string) || 100);
-      const skip   = (page - 1) * limit;
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, parseInt(req.query.limit as string) || 100);
+      const skip = (page - 1) * limit;
       const search = req.query.search as string | undefined;
       const status = req.query.status as string | undefined;
 
@@ -632,7 +633,7 @@ async function startServer() {
       if (status && ["Active", "Archived"].includes(status)) filter.status = status;
       if (search) {
         filter.$or = [
-          { title:  { $regex: search, $options: "i" } },
+          { title: { $regex: search, $options: "i" } },
           { author: { $regex: search, $options: "i" } },
         ];
       }
@@ -643,16 +644,16 @@ async function startServer() {
       ]);
 
       res.json(books.map((b) => ({
-        id:              b._id,
-        title:           b.title,
-        author:          b.author,
-        genre:           b.category,   // frontend ManageBooks uses `genre` field
-        category:        b.category,
+        id: b._id,
+        title: b.title,
+        author: b.author,
+        genre: b.category,   // frontend ManageBooks uses `genre` field
+        category: b.category,
         publicationYear: b.publicationYear ?? "",
-        status:          b.status ?? "Active",
-        description:     b.description,
-        coverUrl:        b.coverUrl,
-        language:        b.language,
+        status: b.status ?? "Active",
+        description: b.description,
+        coverUrl: b.coverUrl,
+        language: b.language,
       })));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -673,14 +674,14 @@ async function startServer() {
       } = req.body;
 
       const update: any = {};
-      if (title           !== undefined) update.title           = title;
-      if (author          !== undefined) update.author          = author;
-      if (description     !== undefined) update.description     = description;
-      if (coverUrl        !== undefined) update.coverUrl        = coverUrl;
+      if (title !== undefined) update.title = title;
+      if (author !== undefined) update.author = author;
+      if (description !== undefined) update.description = description;
+      if (coverUrl !== undefined) update.coverUrl = coverUrl;
       if (publicationYear !== undefined) update.publicationYear = publicationYear;
-      if (language        !== undefined) update.language        = language;
+      if (language !== undefined) update.language = language;
       // frontend sends `genre`; schema stores as `category`
-      if (genre    !== undefined) update.category = genre;
+      if (genre !== undefined) update.category = genre;
       if (category !== undefined) update.category = category;
       // FIX: Handle archive/restore status change
       if (status !== undefined && ["Active", "Archived"].includes(status)) {
@@ -725,7 +726,7 @@ async function startServer() {
   const coverUpload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => cb(null, COVERS_DIR),
-      filename:    (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^\w.-]/g, "")}`),
+      filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^\w.-]/g, "")}`),
     }),
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith("image/")) cb(null, true);
@@ -749,8 +750,8 @@ async function startServer() {
   app.post("/api/admin/books/scrape", verifyToken, isAdmin, async (req, res) => {
     try {
       const { query } = req.body;
-      const response  = await axios.get(`https://gutendex.com/books?search=${encodeURIComponent(query)}`);
-      const results   = response.data.results.slice(0, 10);
+      const response = await axios.get(`https://gutendex.com/books?search=${encodeURIComponent(query)}`);
+      const results = response.data.results.slice(0, 10);
 
       let count = 0;
       for (const item of results) {
@@ -758,15 +759,15 @@ async function startServer() {
         if (!epubUrl) continue;
         if (await Book.findOne({ gutenbergId: item.id })) continue;
         await Book.create({
-          title:       item.title,
-          author:      item.authors.map((a: any) => a.name).join(", "),
-          category:    item.subjects[0] || "Classic Fiction",
+          title: item.title,
+          author: item.authors.map((a: any) => a.name).join(", "),
+          category: item.subjects[0] || "Classic Fiction",
           epubUrl,
-          coverUrl:    item.formats["image/jpeg"] || "",
+          coverUrl: item.formats["image/jpeg"] || "",
           description: item.summaries?.[0] || "",
-          language:    item.languages?.[0] || "en",
+          language: item.languages?.[0] || "en",
           gutenbergId: item.id,
-          status:      "Active",
+          status: "Active",
         });
         count++;
       }
@@ -785,14 +786,14 @@ async function startServer() {
       const epub = new EPub(filePath);
       await epub.parse();
       const meta: any = {
-        title:       typeof epub.metadata.title    === "string" ? epub.metadata.title    : undefined,
-        author:      typeof epub.metadata.creator  === "string" ? epub.metadata.creator  : undefined,
+        title: typeof epub.metadata.title === "string" ? epub.metadata.title : undefined,
+        author: typeof epub.metadata.creator === "string" ? epub.metadata.creator : undefined,
         description: typeof epub.metadata.description === "string" ? epub.metadata.description : undefined,
-        language:    typeof epub.metadata.language === "string" ? epub.metadata.language : undefined,
-        coverPath:   undefined as string | undefined,
+        language: typeof epub.metadata.language === "string" ? epub.metadata.language : undefined,
+        coverPath: undefined as string | undefined,
       };
 
-      const items    = Object.values(epub.manifest || {}) as any[];
+      const items = Object.values(epub.manifest || {}) as any[];
       const coverItem = items.find((i) => {
         const mt = typeof i["media-type"] === "string" ? i["media-type"] : "";
         return mt.startsWith("image/") && /cover/i.test(String(i.id) + String(i.href));
@@ -800,9 +801,9 @@ async function startServer() {
 
       if (coverItem) {
         try {
-          const image   = await epub.getImage(coverItem.id);
+          const image = await epub.getImage(coverItem.id);
           const extMap: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif" };
-          const ext     = extMap[image.mimeType] || ".jpg";
+          const ext = extMap[image.mimeType] || ".jpg";
           const coverPath = path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}_cover${ext}`);
           fs.writeFileSync(coverPath, image.data);
           meta.coverPath = coverPath;
@@ -818,18 +819,18 @@ async function startServer() {
   app.post("/api/admin/books/upload", verifyToken, isAdmin,
     upload.fields([{ name: "epub_file", maxCount: 1 }, { name: "cover_image", maxCount: 1 }]),
     async (req, res) => {
-      const files    = req.files as { [key: string]: Express.Multer.File[] } | undefined;
+      const files = req.files as { [key: string]: Express.Multer.File[] } | undefined;
       const epubFiles = files?.epub_file;
       if (!epubFiles?.length) return res.status(400).json({ error: "EPUB file is required" });
 
-      const epubFile  = epubFiles[0];
+      const epubFile = epubFiles[0];
       const coverFile = files?.cover_image?.[0];
 
       try {
         const extracted = await extractEpubMetadata(epubFile.path);
         const { title, author, description = "", genre = "Uploaded", language = "en", gutenberg_id } = req.body;
 
-        const finalTitle  = title  || extracted.title  || epubFile.originalname.replace(/\.epub$/i, "");
+        const finalTitle = title || extracted.title || epubFile.originalname.replace(/\.epub$/i, "");
         const finalAuthor = author || extracted.author || "Unknown";
 
         let coverUrl = "";
@@ -838,21 +839,21 @@ async function startServer() {
           fs.renameSync(coverFile.path, dest);
           coverUrl = `/api/books/cover-upload/${coverFile.filename}`;
         } else if (extracted.coverPath && fs.existsSync(extracted.coverPath)) {
-          const fn   = `${epubFile.filename}_cover${path.extname(extracted.coverPath)}`;
+          const fn = `${epubFile.filename}_cover${path.extname(extracted.coverPath)}`;
           const dest = path.join(COVERS_DIR, fn);
           fs.copyFileSync(extracted.coverPath, dest);
           coverUrl = `/api/books/cover-upload/${fn}`;
         }
 
         const bookData: any = {
-          title:       finalTitle,
-          author:      finalAuthor,
-          category:    genre,
-          epubUrl:     `/api/books/epub-upload/${epubFile.filename}`,
+          title: finalTitle,
+          author: finalAuthor,
+          category: genre,
+          epubUrl: `/api/books/epub-upload/${epubFile.filename}`,
           coverUrl,
           description: description || extracted.description || "",
-          language:    language    || extracted.language    || "en",
-          status:      "Active",
+          language: language || extracted.language || "en",
+          status: "Active",
         };
         if (gutenberg_id?.trim()) bookData.gutenbergId = parseInt(gutenberg_id, 10);
 
@@ -885,9 +886,23 @@ async function startServer() {
     app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
 
+  // HTTP
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`HTTP server running on http://localhost:${PORT}`);
   });
+
+  // HTTPS (self-signed cert for Docker/demo)
+  const certPath = path.join(__dirname, "certs", "server.cert");
+  const keyPath = path.join(__dirname, "certs", "server.key");
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    const httpsServer = https.createServer(
+      { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) },
+      app,
+    );
+    httpsServer.listen(3443, "0.0.0.0", () => {
+      console.log(`HTTPS server running on https://localhost:3443`);
+    });
+  }
 }
 
 startServer();
