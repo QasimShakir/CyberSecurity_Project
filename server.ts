@@ -14,6 +14,8 @@ import https from "https";
 import multer from "multer";
 import { EPub } from "epub";
 import nodemailer from "nodemailer";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 declare global {
   namespace Express {
@@ -70,6 +72,7 @@ const upload = multer({
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/the-shelf";
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const SESSION_DURATION = process.env.SESSION_DURATION || "24h";
+const APP_BASE_URL = process.env.APP_BASE_URL || "http://localhost:3000";
 
 // =============================================================================
 // MongoDB Models
@@ -175,6 +178,38 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // ── Helmet security headers ────────────────────────────────────────────────
+  // CSP is managed manually below to support EPUB.js requirements;
+  // all other Helmet protections are enabled.
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
+  }));
+
+  // ── Rate limiters ──────────────────────────────────────────────────────────
+  // Auth endpoints: stricter window to slow brute-force attacks
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please try again in 15 minutes." },
+  });
+
+  // General API: generous limit to avoid blocking legitimate users
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please slow down." },
+  });
+
+  app.use("/api/auth", authLimiter);
+  app.use("/api/", apiLimiter);
+
   app.use((req, res, next) => {
     res.setHeader(
       "Content-Security-Policy",
@@ -182,7 +217,7 @@ async function startServer() {
     );
     next();
   });
-  app.use(express.json());
+  app.use(express.json({ limit: "2mb" }));
 
   // ── MongoDB ────────────────────────────────────────────────────────────────
   try {
@@ -289,7 +324,7 @@ async function startServer() {
       user.resetToken = token;
       user.resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000);
       await user.save();
-      const resetLink = `http://localhost:3000/forgot-password?token=${token}`;
+      const resetLink = `${APP_BASE_URL}/forgot-password?token=${token}`;
       await transporter.sendMail({
         from: `"The Shelf" <${process.env.EMAIL_USER}>`,
         to: email,
@@ -869,6 +904,178 @@ async function startServer() {
       }
     }
   );
+
+  // ===========================================================================
+  // ADMIN USER MANAGEMENT ROUTES
+  // ===========================================================================
+
+  // GET /api/admin/users — list all users with pagination
+  app.get("/api/admin/users", verifyToken, isAdmin, async (req, res) => {
+    try {
+      const page  = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
+      const skip  = (page - 1) * limit;
+      const search = ((req.query.search as string) || "").trim().slice(0, 100);
+
+      const filter: any = {};
+      if (search) {
+        filter.$or = [
+          { username: { $regex: search, $options: "i" } },
+          { email:    { $regex: search, $options: "i" } },
+        ];
+      }
+
+      const [users, total] = await Promise.all([
+        User.find(filter)
+          .select("username email role createdAt failedLoginAttempts lockUntil")
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        User.countDocuments(filter),
+      ]);
+
+      res.json({
+        users: users.map((u) => ({
+          id:                  u._id,
+          username:            u.username,
+          email:               u.email,
+          role:                u.role,
+          createdAt:           u.createdAt,
+          failedLoginAttempts: u.failedLoginAttempts,
+          isLocked:            !!(u.lockUntil && u.lockUntil > new Date()),
+        })),
+        total,
+        page,
+        total_pages: Math.ceil(total / limit),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/admin/users/:id/role — promote or demote a user
+  app.patch("/api/admin/users/:id/role", verifyToken, isAdmin, async (req, res) => {
+    try {
+      const { role } = req.body;
+      if (!["reader", "admin"].includes(role))
+        return res.status(400).json({ error: "Role must be 'reader' or 'admin'" });
+
+      if (req.params.id === req.user.id)
+        return res.status(400).json({ error: "Cannot change your own role" });
+
+      const user = await User.findByIdAndUpdate(
+        req.params.id,
+        { role },
+        { new: true }
+      ).select("username email role").lean();
+
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      await logActivity(
+        "updated",
+        `User "${(user as any).email}" role changed to ${role}`,
+        { id: req.user.id, username: req.user.email }
+      );
+      res.json({ id: (user as any)._id, username: (user as any).username, email: (user as any).email, role: (user as any).role });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/admin/users/:id — permanently delete a non-admin user
+  app.delete("/api/admin/users/:id", verifyToken, isAdmin, async (req, res) => {
+    try {
+      if (req.params.id === req.user.id)
+        return res.status(400).json({ error: "Cannot delete your own account" });
+
+      const user = await User.findById(req.params.id).lean();
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if ((user as any).role === "admin")
+        return res.status(403).json({ error: "Cannot delete another admin account" });
+
+      await ReadingProgress.deleteMany({ userId: req.params.id });
+      await User.findByIdAndDelete(req.params.id);
+
+      await logActivity(
+        "deleted",
+        `User account "${(user as any).email}" permanently deleted`,
+        { id: req.user.id, username: req.user.email }
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/admin/users/:id/unlock — unlock a locked account
+  app.patch("/api/admin/users/:id/unlock", verifyToken, isAdmin, async (req, res) => {
+    try {
+      const user = await User.findByIdAndUpdate(
+        req.params.id,
+        { failedLoginAttempts: 0, lockUntil: null },
+        { new: true }
+      ).select("username email").lean();
+      if (!user) return res.status(404).json({ error: "User not found" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ===========================================================================
+  // PROFILE — DELETE ACCOUNT
+  // ===========================================================================
+
+  app.delete("/api/profile", verifyToken, async (req, res) => {
+    try {
+      const user = await User.findById(req.user.id).lean();
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if ((user as any).role === "admin")
+        return res.status(403).json({ error: "Admin accounts cannot be self-deleted. Demote the account first." });
+
+      await ReadingProgress.deleteMany({ userId: req.user.id });
+      await User.findByIdAndDelete(req.user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ===========================================================================
+  // SETUP — SEED INITIAL ADMIN (runs only when zero admin users exist)
+  // ===========================================================================
+
+  app.post("/api/setup/seed", async (req, res) => {
+    try {
+      const adminCount = await User.countDocuments({ role: "admin" });
+      if (adminCount > 0)
+        return res.status(409).json({ error: "Setup already complete. An admin account already exists." });
+
+      const { username, email, password } = req.body;
+      if (!username || !email || !password)
+        return res.status(400).json({ error: "username, email, and password are required" });
+      if (typeof password !== "string" || password.length < 8)
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+
+      const hashed = await bcrypt.hash(password, 12);
+      const admin  = new User({ username, email, password: hashed, role: "admin" });
+      await admin.save();
+
+      const token = jwt.sign(
+        { id: admin._id, email: admin.email, role: admin.role },
+        JWT_SECRET,
+        { expiresIn: SESSION_DURATION as any }
+      );
+      res.json({
+        message: "Admin account created successfully.",
+        token,
+        user: { id: admin._id, username: admin.username, email: admin.email, role: admin.role },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // ===========================================================================
   // VITE / STATIC
