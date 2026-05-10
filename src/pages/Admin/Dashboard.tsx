@@ -43,11 +43,12 @@ function timeAgo(iso: string) {
 }
 
 // Admin nav shared across all admin pages
-export function AdminNav({ active }: { active: "dashboard" | "ingest" | "manage" }) {
+export function AdminNav({ active }: { active: "dashboard" | "ingest" | "manage" | "users" }) {
   const tabs = [
-    { key: "dashboard", label: "Admin Dashboard", to: "/admin"         },
-    { key: "ingest",    label: "Ingest Books",    to: "/admin/ingest"  },
-    { key: "manage",    label: "Manage Books",    to: "/admin/manage"  },
+    { key: "dashboard", label: "Admin Dashboard", to: "/admin"        },
+    { key: "ingest",    label: "Ingest Books",    to: "/admin/ingest" },
+    { key: "manage",    label: "Manage Books",    to: "/admin/manage" },
+    { key: "users",     label: "Manage Users",    to: "/admin/users"  },
   ] as const;
 
   return (

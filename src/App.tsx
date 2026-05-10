@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import AdminDashboard from "./pages/Admin/Dashboard";
 import IngestBooks from "./pages/Admin/IngestBooks";
 import ManageBooks from "./pages/Admin/ManageBooks";
+import ManageUsers from "./pages/Admin/ManageUsers";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; adminOnly?: boolean }> = ({ children, adminOnly = false }) => {
   const { user, isAuthReady } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/admin" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/ingest" element={<ProtectedRoute adminOnly><IngestBooks /></ProtectedRoute>} />
             <Route path="/admin/manage" element={<ProtectedRoute adminOnly><ManageBooks /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute adminOnly><ManageUsers /></ProtectedRoute>} />
             
             <Route path="/" element={<Navigate to="/landingpage" />} />
           </Routes>
