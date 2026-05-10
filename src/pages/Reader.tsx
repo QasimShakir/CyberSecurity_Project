@@ -171,7 +171,7 @@ const saveProgress = useCallback(async (cfi: string, pct: number, currentChapter
       spread:               spreadMode === "spread" ? "always" : "none",
       minSpreadWidth:       spreadMode === "spread" ? 600 : 9999,
       manager:              "default",
-      allowScriptedContent: true,
+      allowScriptedContent: false,
     });
     renditionRef.current = rendition;
 
