@@ -4,12 +4,41 @@ import { User as UserIcon, BookOpen, CheckCircle, Clock, Shield, AlertCircle } f
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
+// Simple inline confirm dialog for delete account
+function DeleteAccountDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-parchment border border-dust rounded-2xl shadow-2xl max-w-md w-full p-8">
+        <div className="flex items-center gap-3 mb-4 text-red-600">
+          <AlertCircle size={22} />
+          <h3 className="font-serif font-bold text-xl text-dark-walnut">Delete Account?</h3>
+        </div>
+        <p className="text-sm text-tan-oak mb-8 leading-relaxed">
+          This will permanently delete your account and all reading progress. This cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <button onClick={onCancel}
+            className="px-6 py-3 rounded-lg font-bold text-sm text-tan-oak border border-dust hover:bg-warm-linen transition-colors">
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            className="px-8 py-3 rounded-lg font-bold text-sm text-white bg-red-600 hover:bg-red-700 transition-all shadow-sm active:scale-95">
+            Delete Permanently
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Profile() {
   const [activeTab, setActiveTab] = useState<"edit" | "history" | "security">("edit");
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const { user } = useAuth();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   // Form states
@@ -51,6 +80,22 @@ export default function Profile() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    setDeleteLoading(true);
+    try {
+      await axios.delete("/api/profile", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      logout();
+      navigate("/login");
+    } catch (err: any) {
+      setMessage(`Failed to delete account: ${err.response?.data?.error || err.message}`);
+      setShowDeleteConfirm(false);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
@@ -82,6 +127,12 @@ export default function Profile() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
+      {showDeleteConfirm && (
+        <DeleteAccountDialog
+          onConfirm={handleDeleteAccount}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
       <div className="flex flex-col md:flex-row gap-8 items-start mb-12">
         <div className="w-full md:w-1/2 bg-parchment border border-dust p-8 rounded-2xl flex items-center gap-8 shadow-sm">
           <div className="w-24 h-24 bg-warm-linen rounded-full flex items-center justify-center text-dust border border-dust">
@@ -257,8 +308,11 @@ export default function Profile() {
                 <p className="font-bold text-red-900 text-lg">Delete Account</p>
                 <p className="text-sm text-red-600 font-medium">This action will permanently remove your library and reading history.</p>
               </div>
-              <button className="bg-red-600 text-white px-8 py-4 rounded-lg font-bold hover:bg-red-700 transition-all shadow-md active:scale-95">
-                Delete Account
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={deleteLoading}
+                className="bg-red-600 text-white px-8 py-4 rounded-lg font-bold hover:bg-red-700 transition-all shadow-md active:scale-95 disabled:opacity-50">
+                {deleteLoading ? "Deleting…" : "Delete Account"}
               </button>
             </div>
           </div>
