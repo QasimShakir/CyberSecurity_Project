@@ -603,6 +603,8 @@ async function startServer() {
   app.put("/api/profile/password", verifyToken, async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
+      const pwError = validatePassword(String(newPassword ?? ""));
+      if (pwError) return res.status(400).json({ error: pwError });
       const user = await User.findById(req.user.id);
       if (!user || !(await bcrypt.compare(currentPassword, user.password)))
         return res.status(401).json({ error: "Invalid current password" });
