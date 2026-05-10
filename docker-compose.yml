@@ -1,31 +1,6 @@
-# ============================================================================
-# The Shelf — Docker Compose
-# Services: MongoDB 7, Node.js App, HTTPS via self-signed certificate
-# ============================================================================
-
 version: "3.9"
 
 services:
-  # --------------------------------------------------------------------------
-  # MongoDB — local instance replacing Atlas for containerised deployment
-  # --------------------------------------------------------------------------
-  mongo:
-    image: mongo:7
-    container_name: shelf-mongo
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_DATABASE: the-shelf
-    volumes:
-      - mongo-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   # --------------------------------------------------------------------------
   # The Shelf — Node.js application
   # --------------------------------------------------------------------------
@@ -40,12 +15,9 @@ services:
       - "3443:3443"
     environment:
       NODE_ENV: production
-      MONGODB_URI: mongodb://mongo:27017/the-shelf
+      MONGODB_URI: ${MONGODB_URI}
       JWT_SECRET: ${JWT_SECRET:-change-this-to-a-strong-random-secret}
       SESSION_DURATION: ${SESSION_DURATION:-24h}
-    depends_on:
-      mongo:
-        condition: service_healthy
     volumes:
       - epub-storage:/app/storage/epub
       - cover-storage:/app/storage/covers
@@ -75,8 +47,6 @@ services:
       '
 
 volumes:
-  mongo-data:
-    driver: local
   epub-storage:
     driver: local
   cover-storage:
