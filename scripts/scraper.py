@@ -1,14 +1,12 @@
 """
 scraper.py — Project Gutenberg scraper for The Shelf
 =====================================================
-Called by the Node.js backend when POST /api/admin/books/scrape is received.
+Standalone utility script. The Node.js backend handles scraping via the
+Gutendex API directly; this script is provided for offline/bulk ingestion.
 
-Usage (standalone):
-    python scraper.py --query "Jane Austen" --limit 5 --language en
-
-Usage (imported):
-    from scraper import scrape_gutenberg
-    result = scrape_gutenberg(query="dickens", limit=10, language="en")
+Usage:
+    python scripts/scraper.py --query "Jane Austen" --limit 5 --language en
+    python scripts/scraper.py --query "dickens" --limit 10 --output results.json
 """
 
 import argparse
@@ -80,10 +78,7 @@ def _get(url: str, stream: bool = False) -> Optional[requests.Response]:
 # ── Search Gutenberg ─────────────────────────────────────────────────────────
 
 def search_gutenberg(query: str, language: str = "en", limit: int = 10) -> list[int]:
-    """
-    Return up to `limit` Gutenberg book IDs matching the query.
-    Paginates automatically if needed.
-    """
+    """Return up to `limit` Gutenberg book IDs matching the query."""
     ids: list[int] = []
     page = 1
 
@@ -99,10 +94,9 @@ def search_gutenberg(query: str, language: str = "en", limit: int = 10) -> list[
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Each result is an <li class="booklink"> with an <a> pointing to /ebooks/<id>
         items = soup.select("li.booklink a[href]")
         if not items:
-            break                    # no more results
+            break
 
         for a in items:
             href = a["href"]
@@ -112,7 +106,6 @@ def search_gutenberg(query: str, language: str = "en", limit: int = 10) -> list[
             if len(ids) >= limit:
                 break
 
-        # Check if a next page exists
         next_btn = soup.select_one("a[title='Go to the next page of results']")
         if not next_btn or len(ids) >= limit:
             break
@@ -128,16 +121,13 @@ def _extract_metadata(soup: BeautifulSoup, book_id: int) -> BookMeta:
     title  = soup.select_one("h1[itemprop='name']")
     author = soup.select_one("a[itemprop='creator']")
 
-    # Subjects → derive a simple genre
     subject_tags = soup.select("td[property='dcterms:subject'] a")
     subjects     = [t.get_text(strip=True) for t in subject_tags]
     genre        = _infer_genre(subjects)
 
-    # Language
     lang_tag = soup.select_one("td[itemprop='inLanguage']")
     language = lang_tag.get_text(strip=True).lower()[:2] if lang_tag else "en"
 
-    # Description (Gutenberg rarely has one; use subjects as fallback)
     desc_tag    = soup.select_one("div.description")
     description = desc_tag.get_text(strip=True) if desc_tag else "; ".join(subjects[:5])
 
@@ -179,7 +169,6 @@ def _infer_genre(subjects: list[str]) -> str:
 
 def _find_epub_url(soup: BeautifulSoup) -> Optional[str]:
     """Find the best EPUB download link on the detail page."""
-    # Prefer 'epub3' → 'epub' → anything with .epub
     for pattern in [r"epub3", r"epub\.epub", r"\.epub"]:
         for a in soup.select("a[href]"):
             href = a.get("href", "")
@@ -193,7 +182,6 @@ def _find_cover_url(soup: BeautifulSoup) -> Optional[str]:
     img = soup.select_one("img.cover-art, img[src*='cover']")
     if img and img.get("src"):
         return urljoin(GUTENBERG_BASE, img["src"])
-    # Fallback: any image in the page header area
     img = soup.select_one("div.page_content img[src]")
     if img:
         return urljoin(GUTENBERG_BASE, img["src"])
@@ -235,7 +223,7 @@ def scrape_gutenberg(
     language: str  = "en",
 ) -> dict:
     """
-    Main entry point called by the Node.js backend.
+    Main entry point.
 
     Returns a dict matching the /api/admin/books/scrape response schema:
     {
@@ -245,9 +233,6 @@ def scrape_gutenberg(
         "failed":  <int>,
         "books_added": [{"book_id": "...", "title": "..."}, ...]
     }
-
-    Files are saved to disk; the caller (Node.js) is responsible for
-    inserting the returned metadata into MongoDB.
     """
     BOOKS_DIR.mkdir(parents=True, exist_ok=True)
     COVERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -273,18 +258,16 @@ def scrape_gutenberg(
         print(f"[book] Processing Gutenberg ID {book_id}")
         time.sleep(REQUEST_DELAY)
 
-        # ── Already downloaded? ──────────────────────────────────────
         meta_file = METADATA_DIR / f"{book_id}.json"
         if meta_file.exists():
-            print(f"  → Duplicate, skipping.")
+            print(f"  -> Duplicate, skipping.")
             skipped += 1
             continue
 
-        # ── Fetch detail page ────────────────────────────────────────
         detail_url  = f"{GUTENBERG_BASE}/ebooks/{book_id}"
         detail_resp = _get(detail_url)
         if detail_resp is None:
-            print(f"  → Could not fetch detail page.")
+            print(f"  -> Could not fetch detail page.")
             failed += 1
             continue
 
@@ -293,24 +276,22 @@ def scrape_gutenberg(
 
         slug = _safe_filename(f"{meta.author}-{meta.title}")
 
-        # ── Find and download EPUB ────────────────────────────────────
         epub_src = _find_epub_url(soup)
         if epub_src is None:
-            print(f"  → No EPUB found.")
+            print(f"  -> No EPUB found.")
             failed += 1
             continue
 
         epub_dest = BOOKS_DIR / f"{slug}.epub"
         time.sleep(REQUEST_DELAY)
         if not _download_file(epub_src, epub_dest):
-            print(f"  → EPUB download failed.")
+            print(f"  -> EPUB download failed.")
             failed += 1
             continue
 
         meta.epub_source = epub_src
         meta.epub_url    = str(epub_dest)
 
-        # ── Cover (best-effort) ───────────────────────────────────────
         cover_src = _find_cover_url(soup)
         if cover_src:
             ext        = Path(cover_src).suffix or ".jpg"
@@ -320,20 +301,19 @@ def scrape_gutenberg(
                 meta.cover_source = cover_src
                 meta.cover_url    = str(cover_dest)
 
-        # ── Save metadata JSON (Node.js reads this) ───────────────────
         meta_dict = asdict(meta)
         meta_file.write_text(json.dumps(meta_dict, indent=2, ensure_ascii=False))
-        print(f"  ✓ '{meta.title}' by {meta.author}")
+        print(f"  OK '{meta.title}' by {meta.author}")
 
         added.append({
-            "book_id":     f"pending-{book_id}",   # replaced by Mongo _id after insert
-            "title":       meta.title,
-            "author":      meta.author,
-            "genre":       meta.genre,
-            "language":    meta.language,
-            "description": meta.description,
-            "epub_url":    meta.epub_url,
-            "cover_url":   meta.cover_url,
+            "book_id":      f"pending-{book_id}",
+            "title":        meta.title,
+            "author":       meta.author,
+            "genre":        meta.genre,
+            "language":     meta.language,
+            "description":  meta.description,
+            "epub_url":     meta.epub_url,
+            "cover_url":    meta.cover_url,
             "gutenberg_id": meta.gutenberg_id,
         })
 

@@ -252,13 +252,26 @@ async function startServer() {
   // AUTH ROUTES
   // ===========================================================================
 
+  // ── Input validators ──────────────────────────────────────────────────────
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  function validatePassword(pw: string): string | null {
+    if (pw.length < 8)          return "Password must be at least 8 characters";
+    if (!/[A-Z]/.test(pw))      return "Password must contain at least one uppercase letter";
+    if (!/[a-z]/.test(pw))      return "Password must contain at least one lowercase letter";
+    if (!/[0-9]/.test(pw))      return "Password must contain at least one number";
+    if (!/[^A-Za-z0-9]/.test(pw)) return "Password must contain at least one special character";
+    return null;
+  }
+
   app.post("/api/auth/signup", async (req, res) => {
     try {
       const { username, email, password } = req.body;
       if (typeof username !== "string" || typeof email !== "string" || typeof password !== "string")
         return res.status(400).json({ error: "Invalid input" });
-      if (password.length < 8)
-        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      if (!EMAIL_RE.test(email))
+        return res.status(400).json({ error: "Invalid email address" });
+      const pwError = validatePassword(password);
+      if (pwError) return res.status(400).json({ error: pwError });
       const hashed = await bcrypt.hash(password, 10);
       const user = new User({ username, email, password: hashed });
       await user.save();
@@ -340,6 +353,8 @@ async function startServer() {
   app.post("/api/auth/reset-password", async (req, res) => {
     try {
       const { token, newPassword } = req.body;
+      const pwError = validatePassword(String(newPassword ?? ""));
+      if (pwError) return res.status(400).json({ error: pwError });
       const user = await User.findOne({ resetToken: token, resetTokenExpiry: { $gt: new Date() } });
       if (!user) return res.status(400).json({ error: "Invalid or expired reset token." });
       user.password = await bcrypt.hash(newPassword, 10);

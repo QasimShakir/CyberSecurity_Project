@@ -8,8 +8,10 @@ dist
 .vscode
 coverage
 *.log
-certs
+*.docx
 .DS_Store
+certs
+scripts
 storage/epub/*
 storage/covers/*
 storage/uploads/*
