@@ -70,7 +70,11 @@ const upload = multer({
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/the-shelf";
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+if (!process.env.JWT_SECRET) {
+  console.error("[FATAL] JWT_SECRET is not set. Refusing to start.");
+  process.exit(1);
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 const SESSION_DURATION = process.env.SESSION_DURATION || "24h";
 const APP_BASE_URL = process.env.APP_BASE_URL || "http://localhost:3000";
 
@@ -461,8 +465,8 @@ async function startServer() {
 
   // Serve local EPUB files
   app.get("/api/books/epub-upload/:filename", (req, res) => {
-    const filePath = path.join(EPUB_DIR, req.params.filename);
-    if (!filePath.startsWith(EPUB_DIR)) return res.status(403).json({ error: "Access denied" });
+    const safeFilename = path.basename(req.params.filename);
+    const filePath = path.join(EPUB_DIR, safeFilename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
     res.setHeader("Content-Type", "application/epub+zip");
     res.setHeader("Accept-Ranges", "bytes");
@@ -471,8 +475,8 @@ async function startServer() {
 
   // Serve uploaded cover images
   app.get("/api/books/cover-upload/:filename", (req, res) => {
-    const filePath = path.join(COVERS_DIR, req.params.filename);
-    if (!filePath.startsWith(COVERS_DIR)) return res.status(403).json({ error: "Access denied" });
+    const safeFilename = path.basename(req.params.filename);
+    const filePath = path.join(COVERS_DIR, safeFilename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
     res.setHeader("Content-Type", "image/jpeg");
     res.sendFile(filePath);
@@ -488,7 +492,7 @@ async function startServer() {
       res.setHeader("Access-Control-Allow-Origin", "*");
 
       if (book.epubUrl.startsWith("/api/books/epub-upload/")) {
-        const filename = book.epubUrl.replace("/api/books/epub-upload/", "");
+        const filename = path.basename(book.epubUrl.replace("/api/books/epub-upload/", ""));
         const filePath = path.join(EPUB_DIR, filename);
         if (!fs.existsSync(filePath)) return res.status(404).json({ error: "EPUB file not found on disk" });
         return res.sendFile(filePath);
