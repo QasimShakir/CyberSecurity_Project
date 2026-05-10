@@ -135,7 +135,7 @@ jobs:
   # Refs #5
   # ===========================================================================
   dast:
-    name: "DAST — Dynamic Scan (OWASP ZAP)"
+    name: "DAST — Dynamic Scan (OWASP ZAP, Dockerised)"
     runs-on: ubuntu-latest
     # DAST runs independently — SCA/SAST findings should not block dynamic testing
     # All three stages run in parallel to demonstrate full pipeline coverage
@@ -144,55 +144,67 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
+      # Create empty certs dir so Docker volume mount succeeds
+      # The server skips HTTPS when no cert is present — HTTP on 3000 is enough for DAST
+      - name: Prepare certs directory
+        run: mkdir -p certs
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.11.0
-        with:
-          mongodb-version: "7.0"
-          mongodb-port: 27017
-
-      - name: Start application server
+      # Write a .env file that docker compose reads for variable substitution
+      - name: Create CI environment file
         run: |
-          npx tsx server.ts &
-          echo "Waiting for server to start..."
-          # Wait up to 30 seconds for the server to be ready
+          cat > .env << 'ENVEOF'
+          JWT_SECRET=ci-pipeline-test-secret-not-for-production
+          SESSION_DURATION=24h
+          ENVEOF
+
+      # Build the multi-stage Docker image and start the full stack
+      # --wait blocks until the app healthcheck passes (up to 120 s)
+      - name: Build and start Dockerised application
+        run: |
+          docker compose up -d --build --wait app mongo
+        timeout-minutes: 10
+
+      # Belt-and-suspenders: confirm the API is reachable from the runner
+      - name: Verify app is reachable
+        run: |
           for i in $(seq 1 30); do
-            if curl -s http://localhost:3000/api/books > /dev/null 2>&1; then
-              echo "Server is ready!"
+            if curl -sf http://localhost:3000/api/books > /dev/null; then
+              echo "App is ready on http://localhost:3000"
               break
             fi
             echo "Attempt $i/30 — waiting..."
-            sleep 1
+            sleep 2
           done
-        env:
-          MONGODB_URI: mongodb://localhost:27017/the-shelf
-          JWT_SECRET: ci-pipeline-test-secret-not-for-production
-          NODE_ENV: production
-          SESSION_DURATION: 24h
-
-      - name: Verify server is running
-        run: |
-          curl -f http://localhost:3000/api/books || (echo "::error::Server failed to start" && exit 1)
+          curl -f http://localhost:3000/api/books || \
+            (echo "::error::App failed to start" && docker compose logs app && exit 1)
 
       - name: Run OWASP ZAP baseline scan
         uses: zaproxy/action-baseline@v0.14.0
         with:
           target: "http://localhost:3000"
-          rules_file_name: ""
           cmd_options: "-a -j"
           allow_issue_writing: false
         continue-on-error: true
+
+      # Parse ZAP's JSON report and surface finding counts as a quality gate
+      - name: DAST quality gate — report finding counts
+        if: always()
+        run: |
+          echo "=== DAST Quality Gate ==="
+          if [ -f report_json.json ]; then
+            HIGH=$(jq '[.site[].alerts[] | select(.riskcode == "3")] | length' report_json.json 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.site[].alerts[] | select(.riskcode == "2")] | length' report_json.json 2>/dev/null || echo "0")
+            LOW=$(jq '[.site[].alerts[] | select(.riskcode == "1")] | length' report_json.json 2>/dev/null || echo "0")
+            echo "High risk:   $HIGH"
+            echo "Medium risk: $MEDIUM"
+            echo "Low risk:    $LOW"
+            if [ "$HIGH" -gt 0 ]; then
+              echo "::warning::DAST found $HIGH HIGH risk finding(s) — review DAST report artifact"
+            fi
+            echo "Full findings are in the dast-report artifact"
+          else
+            echo "No DAST report found — ZAP may have failed to start"
+          fi
 
       - name: Upload DAST report
         if: always()
@@ -203,3 +215,7 @@ jobs:
             report_html.html
             report_json.json
             report_md.md
+
+      - name: Stop Docker services
+        if: always()
+        run: docker compose down --volumes
