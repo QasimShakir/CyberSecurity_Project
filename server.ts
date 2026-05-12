@@ -165,7 +165,7 @@ const verifyToken = (req: any, res: any, next: any) => {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    res.status(400).json({ error: "Invalid token" });
+    res.status(401).json({ error: "Invalid token" });
   }
 };
 
@@ -280,9 +280,11 @@ async function startServer() {
       const user = new User({ username, email, password: hashed });
       await user.save();
       const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: SESSION_DURATION as any });
-      res.json({ token, user: { id: user._id, username: user.username, email: user.email, role: user.role } });
+      res.status(201).json({ token, user: { id: user._id, username: user.username, email: user.email, role: user.role } });
     } catch (err: any) {
-      res.status(400).json({ error: err.message });
+      if (err.code === 11000)
+        return res.status(409).json({ error: "Email or username already in use" });
+      res.status(400).json({ error: "Registration failed" });
     }
   });
 
