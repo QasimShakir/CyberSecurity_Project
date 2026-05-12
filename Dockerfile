@@ -32,8 +32,9 @@ RUN npm ci --omit=dev
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy backend source and config files
+# Copy backend source, config files, and shared utilities
 COPY server.ts tsconfig.json vite.config.ts index.html ./
+COPY utils/ ./utils/
 
 # Copy storage directories (empty structure for volumes)
 RUN mkdir -p /app/storage/epub /app/storage/covers

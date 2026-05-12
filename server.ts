@@ -16,6 +16,7 @@ import { EPub } from "epub";
 import nodemailer from "nodemailer";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { EMAIL_RE, validatePassword } from "./utils/validation.js";
 
 declare global {
   namespace Express {
@@ -256,8 +257,7 @@ async function startServer() {
   // AUTH ROUTES
   // ===========================================================================
 
-  // ── Input validators (logic lives in utils/validation.ts for testability) ──
-  const { EMAIL_RE, validatePassword } = await import("./utils/validation.js");
+  // ── Input validators imported from utils/validation.ts (top-level import) ──
 
   app.post("/api/auth/signup", async (req, res) => {
     try {

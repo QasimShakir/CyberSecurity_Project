@@ -88,8 +88,10 @@ describe("path.basename — prevents directory traversal", () => {
     expect(path.basename("../../../etc/shadow")).toBe("shadow");
   });
 
-  it("strips Windows-style traversal sequences", () => {
-    expect(path.basename("..\\..\\windows\\system32\\cmd.exe")).toBe("cmd.exe");
+  it("strips Windows-style traversal sequences (path.win32 for cross-platform)", () => {
+    // On Linux, backslash is a valid filename character, not a separator.
+    // path.win32.basename always parses Windows paths correctly regardless of host OS.
+    expect(path.win32.basename("..\\..\\windows\\system32\\cmd.exe")).toBe("cmd.exe");
   });
 
   it("preserves safe EPUB filenames unchanged", () => {
