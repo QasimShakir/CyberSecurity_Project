@@ -1,4 +1,4 @@
-// server.ts
+﻿// server.ts
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -349,8 +349,8 @@ async function startServer() {
         html: `<div style="font-family:Georgia,serif;max-width:480px;margin:auto;padding:40px;background:#FAF6EE;border:1px solid #D9CFC4;border-radius:12px"><h2 style="color:#2C1810">The Shelf</h2><p style="color:#7A6652;font-style:italic">Password Reset</p><p>Click below to reset your password. Expires in <strong>30 minutes</strong>.</p><a href="${resetLink}" style="display:inline-block;margin:24px 0;padding:14px 28px;background:#4A7C59;color:white;text-decoration:none;border-radius:8px;font-weight:bold">Reset Password</a><p style="color:#7A6652;font-size:13px">If you didn't request this, ignore this email.</p></div>`,
       });
       res.json({ message: "If that email is registered, you'll receive a reset link shortly." });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -368,8 +368,8 @@ async function startServer() {
       user.lockUntil = null;
       await user.save();
       res.json({ message: "Password reset successfully. You can now log in." });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -437,12 +437,14 @@ async function startServer() {
         page,
         total_pages: Math.ceil(total / limit),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
   app.get("/api/books/:id", async (req, res) => {
+    if (!mongoose.isValidObjectId(req.params.id))
+      return res.status(404).json({ error: "Book not found" });
     try {
       const book = await Book.findById(req.params.id);
       if (!book) return res.status(404).json({ error: "Book not found" });
@@ -458,8 +460,8 @@ async function startServer() {
         publicationYear: book.publicationYear,
         status: book.status,
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -522,8 +524,8 @@ async function startServer() {
         ? { last_location: progress.last_location, percentage: progress.percentage, chapter: progress.chapter }
         : null
       );
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -540,8 +542,8 @@ async function startServer() {
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
       res.status(204).send();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -555,8 +557,8 @@ async function startServer() {
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
       res.status(204).send();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -585,8 +587,8 @@ async function startServer() {
           },
         }))
       );
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -595,8 +597,8 @@ async function startServer() {
       const { username } = req.body;
       await User.findByIdAndUpdate(req.user.id, { username });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -611,8 +613,8 @@ async function startServer() {
       user.password = await bcrypt.hash(newPassword, 10);
       await user.save();
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -630,8 +632,8 @@ async function startServer() {
         ReadingProgress.countDocuments(),
       ]);
       res.json({ books, archived, users, sessions });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -647,8 +649,8 @@ async function startServer() {
         adminName: a.adminName,
         createdAt: a.createdAt,
       })));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -669,8 +671,8 @@ async function startServer() {
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="shelf-activity-${new Date().toISOString().slice(0, 10)}.csv"`);
       res.send(csv);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -711,8 +713,8 @@ async function startServer() {
         coverUrl: b.coverUrl,
         language: b.language,
       })));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -760,8 +762,8 @@ async function startServer() {
       }
 
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -772,8 +774,8 @@ async function startServer() {
       if (!book) return res.status(404).json({ error: "Book not found" });
       await logActivity("deleted", `"${(book as any).title}" permanently deleted`, { id: req.user.id, username: req.user.email });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -797,8 +799,8 @@ async function startServer() {
       const coverUrl = `/api/books/cover-upload/${req.file.filename}`;
       await Book.findByIdAndUpdate(req.params.id, { coverUrl });
       res.json({ coverUrl });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -970,8 +972,8 @@ async function startServer() {
         page,
         total_pages: Math.ceil(total / limit),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -999,8 +1001,8 @@ async function startServer() {
         { id: req.user.id, username: req.user.email }
       );
       res.json({ id: (user as any)._id, username: (user as any).username, email: (user as any).email, role: (user as any).role });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -1024,8 +1026,8 @@ async function startServer() {
         { id: req.user.id, username: req.user.email }
       );
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -1039,8 +1041,8 @@ async function startServer() {
       ).select("username email").lean();
       if (!user) return res.status(404).json({ error: "User not found" });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -1058,8 +1060,8 @@ async function startServer() {
       await ReadingProgress.deleteMany({ userId: req.user.id });
       await User.findByIdAndDelete(req.user.id);
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -1093,8 +1095,8 @@ async function startServer() {
         token,
         user: { id: admin._id, username: admin.username, email: admin.email, role: admin.role },
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
