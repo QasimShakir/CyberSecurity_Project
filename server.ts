@@ -256,16 +256,8 @@ async function startServer() {
   // AUTH ROUTES
   // ===========================================================================
 
-  // ── Input validators ──────────────────────────────────────────────────────
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-  function validatePassword(pw: string): string | null {
-    if (pw.length < 8)          return "Password must be at least 8 characters";
-    if (!/[A-Z]/.test(pw))      return "Password must contain at least one uppercase letter";
-    if (!/[a-z]/.test(pw))      return "Password must contain at least one lowercase letter";
-    if (!/[0-9]/.test(pw))      return "Password must contain at least one number";
-    if (!/[^A-Za-z0-9]/.test(pw)) return "Password must contain at least one special character";
-    return null;
-  }
+  // ── Input validators (logic lives in utils/validation.ts for testability) ──
+  const { EMAIL_RE, validatePassword } = await import("./utils/validation.js");
 
   app.post("/api/auth/signup", async (req, res) => {
     try {
