@@ -295,3 +295,25 @@ Three independent CI jobs run on every push and pull request to `main`:
 ├── docker-compose.yml           # App + MongoDB + certgen services
 └── .env.example                 # Environment variable template
 ```
+
+---
+
+## Team — Habib University DSSE, Cybersecurity Course (2026)
+
+| Member | Role | Key Contributions |
+|---|---|---|
+| **Qasim Shakir** | Application Developer | Core MERN stack application, EPUB reader, admin dashboard, CRUD operations, RBAC implementation, Docker setup |
+| **Taha Hunaid** | Security Engineer | DevSecOps pipeline (SAST/SCA/DAST), vulnerability discovery, exploitation PoCs, unit tests, threat model |
+| **Jotesh Kumar** | Security Analyst | Manual penetration testing, security report writing, remediation verification, re-test evidence |
+
+### Individual Deliverables
+
+- **Qasim Shakir** — `security-testing` branch (intentionally vulnerable app), `Dockerfile`, `docker-compose.yml`, CI/CD pipeline scaffolding
+- **Taha Hunaid** — Security findings (VD-001 to VD-009), exploit scripts (`forge-jwt.cjs`), unit test suite (`__tests__/`), all security fixes on `main` branch
+- **Jotesh Kumar** — Security Assessment Report (`Security_Assessment_Report_Final_v5.pdf`), threat model diagrams, STRIDE analysis, executive summary
+
+---
+
+## License
+
+Academic project — Habib University, Spring 2026. Not for production use.
