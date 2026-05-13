@@ -27,7 +27,7 @@ A full-stack, Dockerised **digital EPUB library** with RBAC (admin / reader), JW
 
 | Feature | Detail |
 |---|---|
-| **Auth** | JWT login/logout, bcrypt passwords, account lockout (5 failed → 15 min lock), inactivity session timeout |
+| **Auth** | JWT login/logout, bcrypt passwords, account lockout (5 failed → 15 min lock), inactivity session timeout. |
 | **RBAC** | `admin` and `reader` roles; separate protected routes per role |
 | **Library** | Browse, search, filter by genre, sort, paginate — all server-side |
 | **EPUB Reader** | In-browser EPUB.js reader with per-user progress (CFI + %) saved to DB |
