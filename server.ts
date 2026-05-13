@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import fs from "fs";
+import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import https from "https";
 import multer from "multer";
@@ -16,7 +17,7 @@ import { EPub } from "epub";
 import nodemailer from "nodemailer";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { EMAIL_RE, validatePassword } from "./utils/validation.js";
+import { EMAIL_RE, validatePassword, isAllowedEpubUrl } from "./utils/validation.js";
 
 declare global {
   namespace Express {
@@ -331,11 +332,12 @@ async function startServer() {
       const { email } = req.body;
       const user = await User.findOne({ email });
       if (!user) return res.json({ message: "If that email is registered, you'll receive a reset link shortly." });
-      const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-      user.resetToken = token;
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+      user.resetToken = tokenHash;
       user.resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000);
       await user.save();
-      const resetLink = `${APP_BASE_URL}/forgot-password?token=${token}`;
+      const resetLink = `${APP_BASE_URL}/forgot-password?token=${rawToken}`;
       await transporter.sendMail({
         from: `"The Shelf" <${process.env.EMAIL_USER}>`,
         to: email,
@@ -353,7 +355,8 @@ async function startServer() {
       const { token, newPassword } = req.body;
       const pwError = validatePassword(String(newPassword ?? ""));
       if (pwError) return res.status(400).json({ error: pwError });
-      const user = await User.findOne({ resetToken: token, resetTokenExpiry: { $gt: new Date() } });
+      const tokenHash = crypto.createHash("sha256").update(String(token ?? "")).digest("hex");
+      const user = await User.findOne({ resetToken: tokenHash, resetTokenExpiry: { $gt: new Date() } });
       if (!user) return res.status(400).json({ error: "Invalid or expired reset token." });
       user.password = await bcrypt.hash(newPassword, 10);
       user.resetToken = null;
@@ -492,6 +495,10 @@ async function startServer() {
         const filePath = path.join(EPUB_DIR, filename);
         if (!fs.existsSync(filePath)) return res.status(404).json({ error: "EPUB file not found on disk" });
         return res.sendFile(filePath);
+      }
+
+      if (!isAllowedEpubUrl(book.epubUrl)) {
+        return res.status(403).json({ error: "EPUB URL not permitted." });
       }
 
       const response = await axios.get(book.epubUrl, { responseType: "stream" });

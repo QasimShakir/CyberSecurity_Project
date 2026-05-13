@@ -5,9 +5,10 @@
  */
 
 import path from "path";
+import { createHash, randomBytes } from "crypto";
 import { describe, it, expect } from "vitest";
 import jwt from "jsonwebtoken";
-import { validatePassword, EMAIL_RE } from "../utils/validation";
+import { validatePassword, EMAIL_RE, isAllowedEpubUrl } from "../utils/validation";
 
 // ─── Password complexity enforcement ──────────────────────────────────────────
 
@@ -102,6 +103,73 @@ describe("path.basename — prevents directory traversal", () => {
 
   it("preserves safe image filenames unchanged", () => {
     expect(path.basename("cover-image.jpg")).toBe("cover-image.jpg");
+  });
+});
+
+// ─── CSPRNG token generation (VD-005 regression) ─────────────────────────────
+
+describe("crypto.randomBytes — CSPRNG password-reset tokens", () => {
+  it("generates a 64-character hex string from 32 random bytes", () => {
+    const token = randomBytes(32).toString("hex");
+    expect(token).toHaveLength(64);
+    expect(/^[0-9a-f]+$/.test(token)).toBe(true);
+  });
+
+  it("generates unique tokens on each call", () => {
+    const t1 = randomBytes(32).toString("hex");
+    const t2 = randomBytes(32).toString("hex");
+    expect(t1).not.toBe(t2);
+  });
+
+  it("SHA-256 hash of a token is deterministic (same input → same hash)", () => {
+    const token = "test-reset-token-value";
+    const h1 = createHash("sha256").update(token).digest("hex");
+    const h2 = createHash("sha256").update(token).digest("hex");
+    expect(h1).toBe(h2);
+    expect(h1).toHaveLength(64);
+  });
+
+  it("different tokens produce different SHA-256 hashes", () => {
+    const h1 = createHash("sha256").update(randomBytes(32).toString("hex")).digest("hex");
+    const h2 = createHash("sha256").update(randomBytes(32).toString("hex")).digest("hex");
+    expect(h1).not.toBe(h2);
+  });
+});
+
+// ─── SSRF allowlist (VD-002 regression) ──────────────────────────────────────
+
+describe("isAllowedEpubUrl — SSRF prevention allowlist", () => {
+  it("allows HTTPS www.gutenberg.org URLs", () => {
+    expect(isAllowedEpubUrl("https://www.gutenberg.org/cache/epub/1342/pg1342.epub")).toBe(true);
+  });
+
+  it("allows HTTPS gutenberg.org URLs", () => {
+    expect(isAllowedEpubUrl("https://gutenberg.org/files/1234/1234.epub")).toBe(true);
+  });
+
+  it("blocks AWS instance metadata service URL", () => {
+    expect(isAllowedEpubUrl("http://169.254.169.254/latest/meta-data/")).toBe(false);
+  });
+
+  it("blocks localhost MongoDB port", () => {
+    expect(isAllowedEpubUrl("http://127.0.0.1:27017")).toBe(false);
+  });
+
+  it("blocks HTTP (non-HTTPS) gutenberg URLs", () => {
+    expect(isAllowedEpubUrl("http://www.gutenberg.org/cache/epub/1342/pg1342.epub")).toBe(false);
+  });
+
+  it("blocks arbitrary external domain", () => {
+    expect(isAllowedEpubUrl("https://attacker.com/malware.epub")).toBe(false);
+  });
+
+  it("blocks internal Docker service hostname", () => {
+    expect(isAllowedEpubUrl("http://host.docker.internal:9999/ssrf-test")).toBe(false);
+  });
+
+  it("blocks malformed/non-URL strings", () => {
+    expect(isAllowedEpubUrl("not-a-url")).toBe(false);
+    expect(isAllowedEpubUrl("")).toBe(false);
   });
 });
 
